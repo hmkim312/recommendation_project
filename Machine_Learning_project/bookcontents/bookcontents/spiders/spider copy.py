@@ -1,0 +1,70 @@
+import scrapy
+import requests
+from scrapy.http import TextResponse
+import time
+import datetime
+import re
+
+from bookcontents.items import BookcontentsItem
+
+
+class Spider(scrapy.Spider):
+
+    name = "fictions"
+    allow_domain = ["http://www.yes24.co.kr/"]
+
+    def __init__(self):
+        self.start_urls = []
+        cat_num = 6001
+        for _ in range(1, 11):
+            cat_url = "http://www.yes24.com/24/category/bestseller?CategoryNumber=00100104{}&sumgb=06".format(
+                cat_num)
+            req = requests.get(cat_url)
+            response = TextResponse(req.url, body=req.text, encoding="utf-8")
+            num = response.xpath(
+                '//*[@id="bestList"]/div[3]/div[1]/div[1]/p/a[@class="hover"]/@href').extract()[0][-2:]
+            cat_num += 1
+            num = num.replace('=','')
+            for i in range(1, int(num)):
+                url = cat_url + "&PageNumber={}".format(i)
+                self.start_urls.append(url)
+
+
+    def parse(self, response):
+        links = response.xpath(
+            '//*[@class="goodsTxtInfo"]/p[1]/a[1]/@href').extract()
+
+        links = ["https://www.yes24.com" + link for link in links]
+
+        for link in links:
+            yield scrapy.Request(link, callback=self.get_content)
+    
+    def get_content(self, response):
+
+        item = BookcontentsItem()
+        item['title']  = response.xpath('//*[@class="gd_titArea"]/h2/text()').extract()[0]
+        item['img'] = response.xpath('//em[@class="imgBdr"]/img/@src').extract()[0]        
+        item['url'] = response.request.url
+        
+        try:
+            description = response.xpath(
+                '//*[@class="infoWrap_txtInner"]').extract()
+            description = "".join(description)
+            description = re.sub('<.+?>', '', description)
+            description = re.sub('\r\n', '', description)
+            description = description.strip()
+            item['description'] = description
+        except:
+            item['description'] = ''
+
+            
+        try :
+            text = response.xpath('//*[@id="infoset_inBook"]/div[@class="infoSetCont_wrap"]/div/div[@class="infoWrap_txtInner"]/textarea').extract()
+            text = "".join(text)
+            text = re.sub('<.+?>', '', text)
+            text = re.sub('\r\n','', text) 
+            item['text'] = text  
+        except:
+            item['text'] = ''
+
+        yield item
